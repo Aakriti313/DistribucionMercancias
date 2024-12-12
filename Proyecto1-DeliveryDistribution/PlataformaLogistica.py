@@ -20,6 +20,7 @@ root.title("Plataforma Logística")
 root.geometry("700x400")
 root.config(bg="#79a8d7")
 
+
 #FRAME PRINCIPAL
 frame_principal = tk.Frame(root, bg="#79a8d7")
 frame_principal.pack(pady=50)
@@ -36,7 +37,7 @@ def mostrar_boton_principal():
 
     boton_calcular_rutas = tk.Button(frame_principal, text="Calcular Rutas", command=calcular_y_mostrar_rutas)
     boton_calcular_rutas.pack(pady=10)
-    
+
     boton_ver_mapa = tk.Button(frame_principal, text="Mapa Puntos Entregas", command=mostrar_mapa_destinos)
     boton_ver_mapa.pack(pady=10)
 
@@ -62,11 +63,9 @@ def mostrar_vista_credenciales():
     entry_contrasena = tk.Entry(frame_principal, show="*", bg="#79a8d7", fg="black")
     entry_contrasena.grid(row=1, column=1, padx=10, pady=10)
 
-    #Botón de registrar
     boton_registro = tk.Button(frame_principal, text="Registrar", command=registrar_usuario)
     boton_registro.grid(row=2, column=0, padx=10, pady=20)
 
-    # Botón de cerrar
     boton_cerrar = tk.Button(frame_principal, text="Cerrar App", command=confirmar_cierre, bg="red", fg="white")
     boton_cerrar.grid(row=2, column=1, padx=10, pady=20)
 
@@ -85,10 +84,10 @@ def registrar_usuario():
 
     if usuario == "admin" and contrasena == "123":
         messagebox.showinfo("Éxito", "Usuario registrado correctamente!")
-        
+    
         for widget in frame_principal.winfo_children():
             widget.destroy()
-        
+    
         mostrar_boton_principal()
     else:
         messagebox.showerror("Error", "Usuario o contraseña incorrectos.")
@@ -102,8 +101,8 @@ def tabla_pedidos():
     conn = obtener_conexion()
     if conn is None:
         return None
-    
-    query = """ 
+
+    query = """
     SELECT fecha_pedido, id_destino, COUNT(*) AS total_pedidos,
     GROUP_CONCAT(id_pedido ORDER BY id_pedido) AS ids_pedidos FROM  plataforma_logistica.pedidos
     GROUP BY fecha_pedido, id_destino ORDER BY fecha_pedido, id_destino;
@@ -118,7 +117,7 @@ def tabla_pedidos():
 def mostrar_pedidos():
     for widget in frame_principal.winfo_children():
         widget.destroy()
-    
+
     frame_tabla = tk.Frame(frame_principal, bg="#79a8d7", padx=20, pady=20)
     frame_tabla.pack(expand=True, fill="both", padx=10, pady=10)
 
@@ -132,10 +131,10 @@ def mostrar_pedidos():
         tabla.heading("Destino", text="ID Destino")
         tabla.heading("Total Pedidos", text="Total Pedidos")
         tabla.heading("IDs Pedidos", text="IDs de Pedidos")
-        
+    
         for i, row in df.iterrows():
             tabla.insert("", "end", values=(row["fecha_pedido"], row["id_destino"], row["total_pedidos"], row["ids_pedidos"]))
-        
+    
         tabla.pack(expand=True, fill="both", pady=10)
     else:
         messagebox.showerror("Error", "No se pudo cargar la tabla de pedidos.")
@@ -196,7 +195,7 @@ def grafo_distancias():
         resultados = cursor.fetchall()
         columnas = [desc[0] for desc in cursor.description]
         distancias_df = pd.DataFrame(resultados, columns=columnas)
-        
+    
         for _, fila in distancias_df.iterrows():
             ciudad1, ciudad2, distancia = fila['ciudad1'], fila['ciudad2'], fila['distancia']
             if ciudad1 not in grafo:
@@ -219,13 +218,13 @@ def dijkstra(grafo, inicio, destino):
 
     while cola_prioridad:
         distancia_actual, nodo_actual = heapq.heappop(cola_prioridad)
-    
+
         if nodo_actual == destino:
             break
-    
+
         if distancia_actual > distancias[nodo_actual]:
             continue
-    
+
         for vecino, peso in grafo[nodo_actual]:
             distancia_nueva = distancia_actual + peso
             if distancia_nueva < distancias[vecino]:
@@ -247,19 +246,45 @@ def calcular_ruta_para_pedidos(pedidos):
     grafo = grafo_distancias()
     rutas = []
 
+    # Generar rutas para todos los pedidos
     for pedido in pedidos:
-        inicio = 2  #ciudad base Mataró ID=2
+        inicio = 2  # Ciudad base Mataró ID=2
         destino = pedido['destino']
         ruta_optima, distancia_total = dijkstra(grafo, inicio, destino)
+
         rutas.append({
             'pedido_id': pedido['id_pedido'],
             'cliente': pedido['cliente'],
             'destino': destino,
             'ruta': ruta_optima,
-            'distancia_total': distancia_total
+            'distancia_total': distancia_total,
+            'cantidad': pedido['cantidad']
         })
 
+    # Ordenar las rutas por distancia en orden descendente
+    rutas.sort(key=lambda x: x['distancia_total'], reverse=True)
+
     return rutas
+
+
+def calcular_rutas_ordenadas(pedidos):
+    rutas = calcular_ruta_para_pedidos(pedidos)
+    rutas_ordenadas = []
+    ciudades_visitadas = set()
+
+    for ruta in rutas:
+        # Ignorar rutas cuyo destino ya fue visitado
+        if ruta['destino'] in ciudades_visitadas:
+            continue
+
+        # Marcar las ciudades intermedias como visitadas
+        for ciudad in ruta['ruta']:
+            ciudades_visitadas.add(ciudad)
+
+        # Agregar la ruta a las rutas finales
+        rutas_ordenadas.append(ruta)
+
+    return rutas_ordenadas
 
 
 #OBTENER CIUDADES
@@ -292,7 +317,9 @@ def visualizar_rutas(rutas):
     for ciudad in ciudades.values():
         folium.Marker(location=ciudad['coords'], popup=ciudad['nombre']).add_to(mapa)
 
-    for ruta in rutas:
+    rutas_ordenadas = sorted(rutas, key=lambda r: r['distancia_total'], reverse=True)
+    
+    for ruta in rutas_ordenadas:
         color_ruta = generar_color_random()
         for j in range(len(ruta['ruta']) - 1):
             origen = ciudades[ruta['ruta'][j]]['coords']
@@ -313,7 +340,7 @@ def fecha_caducidad():
     GROUP_CONCAT(p.id_pedido ORDER BY p.id_pedido) AS ids_pedidos,
     MAX(prod.caducidad_desde_fabricacion) AS fecha_fabricacion_max,
     MIN(prod.caducidad_desde_fabricacion) AS fecha_fabricacion_min FROM plataforma_logistica.pedidos p
-    JOIN plataforma_logistica.producto prod ON p.id_producto = prod.id_producto GROUP BY p.fecha_pedido, 
+    JOIN plataforma_logistica.producto prod ON p.id_producto = prod.id_producto GROUP BY p.fecha_pedido,
     p.id_destino ORDER BY p.fecha_pedido, p.id_destino;
     """
 
@@ -326,7 +353,7 @@ def fecha_caducidad():
 def obtener_pedidos():
     conn = obtener_conexion()
     try:
-        query = """ 
+        query = """
         SELECT p.id_pedido, p.fecha_pedido, p.cantidad,
             c.nombre AS cliente, d.id_destino AS destino,
             prod.nombre AS producto
@@ -343,6 +370,47 @@ def obtener_pedidos():
         conn.close()
 
 
+def calcular_camiones_necesarios(pedidos, capacidad_camion):
+    pedidos = obtener_pedidos()
+    camiones_por_destino = {}
+    for pedido in pedidos:
+        destino = pedido['destino']
+        cantidad = pedido['cantidad']
+
+        if destino not in camiones_por_destino:
+            camiones_por_destino[destino] = 0
+        camiones_por_destino[destino] += cantidad
+
+    # Dividir la cantidad total de pedidos por la capacidad del camión
+    for destino, total in camiones_por_destino.items():
+        camiones_por_destino[destino] = -(-total // capacidad_camion)  # Redondear hacia arriba
+
+    return camiones_por_destino
+
+
+def mostrar_camiones_necesarios():
+    try:
+        capacidad_camion = int(entry_capacidad_camion.get())
+        if capacidad_camion <= 0:
+            raise ValueError("La capacidad del camión debe ser un número positivo.")
+    except ValueError as e:
+        messagebox.showerror("Error", f"Entrada inválida en Capacidad Camión: {e}")
+        return
+
+    pedidos = obtener_pedidos()
+    if not pedidos:
+        messagebox.showerror("Error", "No se encontraron pedidos para calcular.")
+        return
+
+    camiones_por_destino = calcular_camiones_necesarios(pedidos, capacidad_camion)
+
+    for destino, camiones in camiones_por_destino.items():
+        print(f"Destino: {destino}, Camiones necesarios: {camiones}")
+
+    messagebox.showinfo("Camiones Calculados", "Se ha calculado el número de camiones necesarios. Revise la consola para detalles.")
+
+#------------------------------------------------------------------------------------------------------------------------------------
+
 #IMPRIMIR LISTADO DE RUTAS
 def imprimir_rutas(rutas):
     ciudades = obtener_ciudades()
@@ -355,70 +423,134 @@ def imprimir_rutas(rutas):
         distancia_total = ruta['distancia_total']
         # Añadir una representación única de la ruta al conjunto
         rutas_unicas.add((nombres_ruta, distancia_total))
-    
+
     # Imprimir las rutas únicas
     for i, (nombres_ruta, distancia_total) in enumerate(rutas_unicas, start=1):
         ruta_str = f"Ruta n°{i}: " + " -> ".join(nombres_ruta) + f" | Kilómetros totales: {distancia_total} km"
         print(ruta_str)
 
 
-#CALCULAR TIEMPO RUTA
-def calcular_tiempo_rutas(rutas):
-    velocidad = 120  # Velocidad en km/h
-    horas_conduccion_diaria = 8  # Máximo de horas de conducción por día
-    descanso_diario = 16  # Horas de descanso obligatorio
+def calcular_tiempo_y_camiones_rutas(rutas):
+    try:
+        # Convertir a flotante
+        velocidad_media = float(entry_velocidad_media.get())  # Velocidad en km/h
+        if velocidad_media <= 0:
+            raise ValueError("La velocidad_media debe ser un número positivo.")
+    except ValueError as e:
+        messagebox.showerror("Error", f"Entrada inválida en Velocidad Media: {e}")
+        return
 
-    # Usar un conjunto para almacenar rutas únicas
-    rutas_unicas = set()
-    for ruta in rutas:
-        # Crear una representación única de la ruta como tupla
-        representacion_ruta = tuple(ruta['ruta']), ruta['distancia_total']
-        rutas_unicas.add(representacion_ruta)
+    horas_conduccion_diaria = 8  # Horas máximas de conducción por día
+    ciudades = obtener_ciudades()
 
-    # Calcular tiempo para las rutas únicas
-    for i, (ruta, distancia_total) in enumerate(rutas_unicas, start=1):
-        tiempo_total_horas = distancia_total / velocidad  # Tiempo total en horas
-        
-        # Calcular días completos de conducción
-        dias_completos = int(tiempo_total_horas // horas_conduccion_diaria)
+    resultados_rutas = []  # Lista para almacenar los datos procesados
+
+    for i, ruta in enumerate(rutas, start=1):
+        distancia_total = ruta['distancia_total']
+
+        # Calcular tiempo estimado
+        tiempo_total_horas = distancia_total / velocidad_media
+        dias_completos = tiempo_total_horas / horas_conduccion_diaria
         horas_restantes = tiempo_total_horas % horas_conduccion_diaria
+        dias = int(dias_completos)
+        horas = round(horas_restantes)
 
-        # Calcular tiempo total con descansos
-        if tiempo_total_horas <= horas_conduccion_diaria:
-            # Si la ruta toma menos de 8 horas, no requiere descanso
-            dias = 0
-            horas = tiempo_total_horas
-        else:
-            # Si hay días completos, calcular el tiempo de descanso
-            tiempo_descanso = dias_completos * descanso_diario
-            if horas_restantes > 0:
-                tiempo_descanso += descanso_diario  # Agregar un día de descanso si quedan horas restantes
-            tiempo_total = tiempo_total_horas + tiempo_descanso  # Tiempo total incluyendo descansos
+        # Calcular camiones necesarios
+        total_carga = ruta['cantidad']  # Obtener carga total de la ruta
+        camiones_necesarios = -(-total_carga // int(entry_capacidad_camion.get()))
 
-            # Convertir a días y horas
-            dias = int(tiempo_total // 24)
-            horas = tiempo_total % 24
+        # Ruta como texto (opcional para imprimir)
+        nombres_ciudades = " -> ".join(ciudades[ciudad_id]['nombre'] for ciudad_id in ruta['ruta'])
+        tiempo_str = f"{dias} días y {horas:.2f} horas"
 
-        # Imprimir el resultado
-        if dias == 0:
-            print(f"Ruta n°{i}: {distancia_total} km | Tiempo estimado: {horas:.2f} horas")
-        else:
-            print(f"Ruta n°{i}: {distancia_total} km | Tiempo estimado: {dias} días y {horas:.2f} horas")
+        # Guardar los resultados en una lista
+        resultados_rutas.append({
+            'ruta_id': i,
+            'nombres_ciudades': nombres_ciudades,
+            'distancia_total': distancia_total,
+            'dias': dias,
+            'horas': horas,
+            'tiempo_estimado': dias + (horas / horas_conduccion_diaria),  # Tiempo en días (float)
+            'camiones_necesarios': camiones_necesarios
+        })
+
+        # Imprimir en consola (opcional)
+        print(f"Ruta n°{i}: {nombres_ciudades} | Distancia total: {distancia_total} km | "
+                f"Tiempo estimado: {tiempo_str} | Camiones necesarios: {camiones_necesarios}")
+
+    return resultados_rutas
+
+
+def calcular_costos_rutas(rutas_ordenadas):
+    # Llamamos a la función que calcula el tiempo y los camiones
+    resultados_tiempos_y_camiones = calcular_tiempo_y_camiones_rutas(rutas_ordenadas)
+
+    precio_por_camion = 30000
+    salario_por_dia = 2000
+
+    costos_por_ruta = []
+
+    # Procesar las rutas con la información de tiempo y camiones
+    for ruta, resultados in zip(rutas_ordenadas, resultados_tiempos_y_camiones):
+        # Obtener datos de tiempo estimado y camiones desde los resultados
+        tiempo_estimado = resultados['tiempo_estimado']
+        camiones_necesarios = resultados['camiones_necesarios']
+        distancia_total = ruta['distancia_total']
+        destino = ruta['destino']
+
+        # Calcular costos
+        costo_camiones = camiones_necesarios * precio_por_camion
+        costo_combustible = distancia_total * float(entry_costo_km.get()) * camiones_necesarios
+        costo_salarios = tiempo_estimado * salario_por_dia * camiones_necesarios
+
+        # Sumar costos totales
+        costo_total = costo_camiones + costo_combustible + costo_salarios
+
+        # Agregar detalles de la ruta al resultado
+        costos_por_ruta.append({
+            'destino': destino,
+            'ruta': ruta['ruta'],
+            'distancia_total': distancia_total,
+            'camiones_necesarios': camiones_necesarios,
+            'costo_camiones': costo_camiones,
+            'costo_combustible': costo_combustible,
+            'costo_salarios': costo_salarios,
+            'costo_total': costo_total
+        })
+
+    # Mostrar los costos por ruta
+    for costo in costos_por_ruta:
+        print(f"Destino: {costo['destino']} | Costo Total: {costo['costo_total']}")
+
+    return costos_por_ruta
 
 
 #CALCULAR RUTAS
 def calcular_rutas():
+    # Obtener pedidos desde la base de datos
     pedidos = obtener_pedidos()
-    rutas_pedidos = calcular_ruta_para_pedidos(pedidos)
+    # Calcular las rutas ordenadas basadas en los pedidos
+    rutas_ordenadas = calcular_rutas_ordenadas(pedidos)
 
-    if rutas_pedidos:
-        imprimir_rutas(rutas_pedidos)
-
-        calcular_tiempo_rutas(rutas_pedidos)
-        visualizar_rutas(rutas_pedidos)
+    if rutas_ordenadas:
+        # Calcular y mostrar el tiempo estimado y camiones necesarios por cada ruta
+        # calcular_tiempo_y_camiones_rutas(rutas_ordenadas)
+        # print("----------------------------------------------------------------")
+        
+        # Calcular los costos para cada ruta
+        calcular_costos_rutas(rutas_ordenadas)
+        print("----------------------------------------------------------------")
+        
+        # Visualizar las rutas en un mapa
+        visualizar_rutas(rutas_ordenadas)
+        
+        # Mostrar mensaje confirmando la acción
         messagebox.showinfo("Rutas", "Las rutas han sido calculadas y visualizadas.")
+        
+        # Abrir el mapa generado en un navegador
         webbrowser.open("rutas_pedidos_colores.html")
     else:
+        # Si no se encuentran rutas, mostrar error
         messagebox.showerror("Error", "No se encontraron rutas para mostrar.")
 
 
@@ -430,18 +562,21 @@ def calcular_y_mostrar_rutas():
     label_costo_km = tk.Label(frame_principal, text="Costo por km:", bg="#79a8d7", fg="black")
     label_costo_km.grid(row=0, column=0, padx=10, pady=10)
 
+    global entry_costo_km
     entry_costo_km = tk.Entry(frame_principal, bg="#79a8d7", fg="black")
     entry_costo_km.grid(row=0, column=1, padx=10, pady=10)
 
     label_capacidad_camion = tk.Label(frame_principal, text="Capacidad Camión:", bg="#79a8d7", fg="black")
     label_capacidad_camion.grid(row=1, column=0, padx=10, pady=10)
 
+    global entry_capacidad_camion
     entry_capacidad_camion = tk.Entry(frame_principal, bg="#79a8d7", fg="black")
     entry_capacidad_camion.grid(row=1, column=1, padx=10, pady=10)
 
     label_velocidad_media = tk.Label(frame_principal, text="Velocidad Media:", bg="#79a8d7", fg="black")
     label_velocidad_media.grid(row=2, column=0, padx=10, pady=10)
 
+    global entry_velocidad_media
     entry_velocidad_media = tk.Entry(frame_principal, bg="#79a8d7", fg="black")
     entry_velocidad_media.grid(row=2, column=1, padx=10, pady=10)
 
