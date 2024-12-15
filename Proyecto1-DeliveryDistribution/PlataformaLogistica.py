@@ -4,14 +4,10 @@ import statsmodels.api as sm  # type: ignore
 import tkinter as tk
 from tkinter import ttk, messagebox
 import folium  # type: ignore
-from sqlalchemy import create_engine
-from io import BytesIO
-from PIL import Image, ImageTk  # type: ignore
 import webbrowser
-import matplotlib as plt
 import heapq
-from datetime import date
 import random
+import math 
 #--------------------------------------------------------
 
 #VENTANA PRINCIPAL
@@ -314,20 +310,65 @@ def visualizar_rutas(rutas):
     ciudades = obtener_ciudades()
     mapa = folium.Map(location=ciudades[2]['coords'], zoom_start=6)
 
-    for ciudad in ciudades.values():
-        folium.Marker(location=ciudad['coords'], popup=ciudad['nombre']).add_to(mapa)
-
     rutas_ordenadas = sorted(rutas, key=lambda r: r['distancia_total'], reverse=True)
-    
-    for ruta in rutas_ordenadas:
+
+    # Crear una capa para cada ruta
+    capas_rutas = []
+    for idx, ruta in enumerate(rutas_ordenadas):
+        capa = folium.FeatureGroup(name=f"Ruta {idx + 1}: {ruta['distancia_total']} km")
         color_ruta = generar_color_random()
         for j in range(len(ruta['ruta']) - 1):
             origen = ciudades[ruta['ruta'][j]]['coords']
             destino = ciudades[ruta['ruta'][j + 1]]['coords']
-            folium.PolyLine([origen, destino], color=color_ruta, weight=3, opacity=0.6).add_to(mapa)
+            folium.PolyLine([origen, destino], color=color_ruta, weight=3, opacity=0.6).add_to(capa)
+        capas_rutas.append(capa)
+        capa.add_to(mapa)
 
+    # Añadir marcadores de ciudades
+    for ciudad_id, ciudad in ciudades.items():
+        folium.Marker(
+            location=ciudad['coords'],
+            popup=folium.Popup(f"<b>{ciudad['nombre']}</b>", max_width=300),
+        ).add_to(mapa)
+
+    # Añadir controles de capa
+    folium.LayerControl(collapsed=False).add_to(mapa)
+
+    # Guardar el mapa en un archivo HTML
     mapa.save("rutas_pedidos_colores.html")
 
+    # Insertar script para checkbox "All"
+    with open("rutas_pedidos_colores.html", "r") as file:
+        contenido = file.read()
+
+    script_all = """
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var checkboxes = document.querySelectorAll('input[type=\"checkbox\"]');
+            var allCheckbox = document.createElement('input');
+            allCheckbox.type = 'checkbox';
+            allCheckbox.id = 'all-routes';
+            var label = document.createElement('label');
+            label.htmlFor = 'all-routes';
+            label.textContent = ' All';
+            var controls = document.querySelector('.leaflet-control-layers-list');
+            controls.insertBefore(allCheckbox, controls.firstChild);
+            controls.insertBefore(label, allCheckbox.nextSibling);
+
+            allCheckbox.addEventListener('change', function() {
+                checkboxes.forEach(function(checkbox) {
+                    checkbox.checked = allCheckbox.checked;
+                    checkbox.dispatchEvent(new Event('change'));
+                });
+            });
+        });
+    </script>
+    """
+
+    contenido = contenido.replace("</body>", script_all + "</body>")
+
+    with open("rutas_pedidos_colores.html", "w") as file:
+        file.write(contenido)
 
 #OBTENER FECHA MÁX/MIN CADUCIDAD PEDIDIDOS
 def fecha_caducidad():
@@ -371,20 +412,26 @@ def obtener_pedidos():
 
 
 def calcular_camiones_necesarios(pedidos, capacidad_camion):
-    pedidos = obtener_pedidos()
     camiones_por_destino = {}
+
+    # Sumar la cantidad total de pedidos por destino (considerando 'destino' como la ruta)
     for pedido in pedidos:
-        destino = pedido['destino']
+        destino = pedido['destino']  # Usamos destino como ruta
         cantidad = pedido['cantidad']
 
         if destino not in camiones_por_destino:
             camiones_por_destino[destino] = 0
         camiones_por_destino[destino] += cantidad
 
-    # Dividir la cantidad total de pedidos por la capacidad del camión
+    # Calcular el número de camiones necesarios para cada destino
     for destino, total in camiones_por_destino.items():
-        camiones_por_destino[destino] = -(-total // capacidad_camion)  # Redondear hacia arriba
+        if capacidad_camion <= 0:
+            raise ValueError("La capacidad del camión debe ser un valor positivo y mayor que cero.")
+        
+        # Calcular el número de camiones necesarios redondeando hacia arriba
+        camiones_por_destino[destino] = math.ceil(total / capacidad_camion)
 
+    print('camiones_por_destino:', camiones_por_destino)
     return camiones_por_destino
 
 
@@ -402,10 +449,12 @@ def mostrar_camiones_necesarios():
         messagebox.showerror("Error", "No se encontraron pedidos para calcular.")
         return
 
+    # Llamada a la función de cálculo con la capacidad del camión
     camiones_por_destino = calcular_camiones_necesarios(pedidos, capacidad_camion)
 
+    # Mostrar los resultados en la consola
     for destino, camiones in camiones_por_destino.items():
-        print(f"Destino: {destino}, Camiones necesarios: {camiones}")
+        print(f"Destino (Ruta): {destino}, Camiones necesarios: {camiones}")
 
     messagebox.showinfo("Camiones Calculados", "Se ha calculado el número de camiones necesarios. Revise la consola para detalles.")
 
@@ -440,10 +489,10 @@ def calcular_tiempo_y_camiones_rutas(rutas):
         messagebox.showerror("Error", f"Entrada inválida en Velocidad Media: {e}")
         return
 
-    horas_conduccion_diaria = 8  # Horas máximas de conducción por día
+    horas_conduccion_diaria = 8
     ciudades = obtener_ciudades()
 
-    resultados_rutas = []  # Lista para almacenar los datos procesados
+    resultados_rutas = [] 
 
     for i, ruta in enumerate(rutas, start=1):
         distancia_total = ruta['distancia_total']
@@ -456,7 +505,7 @@ def calcular_tiempo_y_camiones_rutas(rutas):
         horas = round(horas_restantes)
 
         # Calcular camiones necesarios
-        total_carga = ruta['cantidad']  # Obtener carga total de la ruta
+        total_carga = ruta['cantidad']
         camiones_necesarios = -(-total_carga // int(entry_capacidad_camion.get()))
 
         # Ruta como texto (opcional para imprimir)
@@ -527,31 +576,153 @@ def calcular_costos_rutas(rutas_ordenadas):
 
 #CALCULAR RUTAS
 def calcular_rutas():
-    # Obtener pedidos desde la base de datos
     pedidos = obtener_pedidos()
-    # Calcular las rutas ordenadas basadas en los pedidos
     rutas_ordenadas = calcular_rutas_ordenadas(pedidos)
 
     if rutas_ordenadas:
-        # Calcular y mostrar el tiempo estimado y camiones necesarios por cada ruta
-        # calcular_tiempo_y_camiones_rutas(rutas_ordenadas)
-        # print("----------------------------------------------------------------")
-        
-        # Calcular los costos para cada ruta
-        calcular_costos_rutas(rutas_ordenadas)
+        costos_por_ruta = calcular_costos_rutas(rutas_ordenadas)
         print("----------------------------------------------------------------")
+        calcular_camiones_necesarios(pedidos, int(entry_capacidad_camion.get()))
         
-        # Visualizar las rutas en un mapa
-        visualizar_rutas(rutas_ordenadas)
+        # Mostrar los botones de opciones después de calcular las rutas
+        for widget in frame_principal.winfo_children():
+            widget.destroy()
+
+        boton_mostrar_mapa = tk.Button(frame_principal, text="Mostrar Mapa", command=lambda: mostrar_mapa_rutas_ordenadas(rutas_ordenadas), bg="#d9e6f2", fg="black")
+        boton_mostrar_mapa.grid(row=3, column=0, padx=10, pady=20)
+
+        # boton_mostrar_datos_rutas = tk.Button(frame_principal, text="Mostrar Datos Rutas", command=lambda: mostrar_datos_rutas(rutas_ordenadas), bg="#d9e6f2", fg="black")
+        # boton_mostrar_datos_rutas.grid(row=3, column=1, padx=10, pady=20)
+
+        boton_mostrar_costos = tk.Button(frame_principal, text="Mostrar Costos", command=lambda: mostrar_costos(costos_por_ruta), bg="#d9e6f2", fg="black")
+        boton_mostrar_costos.grid(row=3, column=2, padx=10, pady=20)
+
+        boton_volver = tk.Button(frame_principal, text="Volver", command=calcular_y_mostrar_rutas, bg="#d9e6f2", fg="black")
+        boton_volver.grid(row=3, column=3, padx=10, pady=20, sticky="w")
         
-        # Mostrar mensaje confirmando la acción
-        messagebox.showinfo("Rutas", "Las rutas han sido calculadas y visualizadas.")
-        
-        # Abrir el mapa generado en un navegador
-        webbrowser.open("rutas_pedidos_colores.html")
     else:
-        # Si no se encuentran rutas, mostrar error
         messagebox.showerror("Error", "No se encontraron rutas para mostrar.")
+
+
+# MOSTRAR MAPA
+def mostrar_mapa_rutas_ordenadas(rutas_ordenadas):
+    visualizar_rutas(rutas_ordenadas)
+    webbrowser.open("rutas_pedidos_colores.html")
+
+
+# MOSTRAR DATOS DE LAS RUTAS EN UNA TABLA
+def mostrar_datos_rutas(rutas_ordenadas):
+    # Limpiar el contenido anterior del frame principal
+    for widget in frame_principal.winfo_children():
+        widget.destroy()
+
+    # Crear un marco para la tabla
+    frame_tabla = tk.Frame(frame_principal, bg="#79a8d7", padx=20, pady=20)
+    frame_tabla.pack(expand=True, fill="both", padx=10, pady=10)
+
+    # Botón para volver
+    boton_volver = tk.Button(frame_tabla, text="Volver", command=calcular_y_mostrar_rutas, bg="#d9e6f2", fg="black")
+    boton_volver.pack(pady=10, anchor="ne")
+
+    if rutas_ordenadas:
+        # Crear la tabla con ttk.Treeview
+        tabla = ttk.Treeview(
+            frame_tabla,
+            columns=("Ruta", "Distancia Total (km)", "Tiempo Estimado (días y horas)", "Camiones Necesarios"),
+            show="headings"
+        )
+        
+        # Definir los encabezados de la tabla
+        tabla.heading("Ruta", text="Ruta")
+        tabla.heading("Distancia Total (km)", text="Distancia Total (km)")
+        tabla.heading("Tiempo Estimado (días y horas)", text="Tiempo Estimado (días y horas)")
+        tabla.heading("Camiones Necesarios", text="Camiones Necesarios")
+
+        # Ajustar el ancho de las columnas
+        tabla.column("Ruta", width=200, anchor="center")
+        tabla.column("Distancia Total (km)", width=150, anchor="center")
+        tabla.column("Tiempo Estimado (días y horas)", width=200, anchor="center")
+        tabla.column("Camiones Necesarios", width=150, anchor="center")
+
+        # Insertar los datos de las rutas
+        for i, ruta in enumerate(rutas_ordenadas, start=1):
+            # Verifica que la ruta tenga los campos esperados
+            try:
+                tabla.insert(
+                    "", "end",
+                    values=(
+                        f"Ruta n°{ruta['ruta_id']}",
+                        f"{ruta['distancia_total']} km",
+                        f"{ruta['dias']} días y {ruta['horas']:.2f} horas",
+                        f"{ruta['camiones_necesarios']}"
+                    )
+                )
+            except KeyError as e:
+                messagebox.showerror("Error", f"Datos incompletos en la ruta: {e}")
+                return
+
+        # Empacar la tabla
+        tabla.pack(expand=True, fill="both", pady=10)
+
+        # Agregar scrollbars a la tabla
+        scrollbar_y = ttk.Scrollbar(frame_tabla, orient="vertical", command=tabla.yview)
+        scrollbar_y.pack(side="right", fill="y")
+        tabla.configure(yscrollcommand=scrollbar_y.set)
+
+    else:
+        # Si no hay rutas, mostrar un mensaje
+        messagebox.showerror("Error", "No hay rutas disponibles para mostrar.")
+
+# MOSTRAR COSTOS POR RUTA EN UNA TABLA
+def mostrar_costos(costos_por_ruta):
+    for widget in frame_principal.winfo_children():
+        widget.destroy()
+
+    # Crear un marco para la tabla
+    frame_tabla = tk.Frame(frame_principal, bg="#79a8d7", padx=20, pady=20)
+    frame_tabla.pack(expand=True, fill="both", padx=10, pady=10)
+
+    # Botón para volver
+    boton_volver = tk.Button(frame_tabla, text="Volver", command=calcular_y_mostrar_rutas, bg="#d9e6f2", fg="black")
+    boton_volver.pack(pady=10, anchor="ne")
+
+    # Crear la tabla con ttk.Treeview
+    tabla = ttk.Treeview(frame_tabla, columns=("Destino", "Distancia Total (km)", "Camiones Necesarios", "Costo Total"), show="headings")
+
+    # Definir los encabezados de la tabla
+    tabla.heading("Destino", text="Destino")
+    tabla.heading("Distancia Total (km)", text="Distancia Total (km)")
+    tabla.heading("Camiones Necesarios", text="Camiones Necesarios")
+    tabla.heading("Costo Total", text="Costo Total")
+
+    # Insertar los datos de los costos
+    total_distancia = 0
+    total_camiones = 0
+    total_costo = 0.0
+
+    for costo in costos_por_ruta:
+        tabla.insert("", "end", values=(
+            costo['destino'], 
+            f"{costo['distancia_total']} km", 
+            f"{costo['camiones_necesarios']}", 
+            f"${costo['costo_total']:.2f}"
+        ))
+
+        # Acumular los totales
+        total_distancia += costo['distancia_total']
+        total_camiones += costo['camiones_necesarios']
+        total_costo += costo['costo_total']
+
+    # Agregar la fila Total al final
+    tabla.insert("", "end", values=(
+        "Total",
+        f"{total_distancia} km",
+        f"{total_camiones}",
+        f"${total_costo:.2f}"
+    ))
+
+    # Empacar la tabla
+    tabla.pack(expand=True, fill="both", pady=10)
 
 
 #MOSTRAR RUTAS
